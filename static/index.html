@@ -1,0 +1,118 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>EcoFood Pro | Inovação em Upcycling</title>
+    
+    <link rel="stylesheet" href="css/style.css">
+    
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Montserrat:wght@600;800&family=Roboto:wght@300;400;700&display=swap" rel="stylesheet">
+    
+    <script src="https://cdn.jsdelivr.net/npm/mermaid/dist/mermaid.min.js"></script>
+    <script>mermaid.initialize({ startOnLoad: false, theme: 'neutral' });</script>
+</head>
+<body>
+
+    <div class="top-bar">
+        <div class="logo-area">
+            <h1>EcoFood <span id="pro-badge" style="display:none;">PRO</span></h1>
+            <small>AI Generative Food & Regulatory System</small>
+        </div>
+        <div>
+            <button class="btn-history" onclick="toggleHistorico()">📂 Histórico de Projetos</button>
+        </div>
+    </div>
+
+    <div class="history-panel" id="painel-historico">
+        <div class="history-header">
+            <h3>Projetos Recentes</h3>
+            <button onclick="toggleHistorico()" style="background:none; border:none; font-size:1.2rem; cursor:pointer;">✖</button>
+        </div>
+        <div class="history-list" id="lista-historico">
+            <p style="padding:15px; color:#888; font-size:0.9rem;">Nenhum projeto ainda.</p>
+        </div>
+    </div>
+
+    <div class="container">
+        <section class="search-section" id="view-search">
+            <h2 style="color: var(--primary-dark); margin-bottom: 10px; margin-top: 30px;">Valorização de Resíduos Agroindustriais</h2>
+            <p style="color: #666; margin-bottom: 30px;">Transforme subprodutos em novos produtos comerciais com viabilidade técnica, regulatória e econômica.</p>
+
+            <div class="nav-tabs">
+                <button id="tab-basico" class="tab-btn active" onclick="mudarAba('basico')"> Rápido</button>
+    
+                <button id="tab-avancado" class="tab-btn" onclick="mudarAba('avancado')">⚙️ Avançado - Modo PHDeus</button>
+            </div>
+
+            <div id="view-basico" class="search-form animate-fade">
+                <div class="form-title">DADOS DE ENTRADA</div>
+                <div class="main-search-wrapper">
+                    <div class="input-group-main">
+                        <label>Matéria-Prima (Resíduo)</label>
+                        <input type="text" id="inputResiduoBasico" placeholder="Ex: Soro de leite, Casca de banana...">
+                    </div>
+                    <div class="input-group-side">
+                        <label>Escala</label>
+                        <select id="selectNivelBasico">
+                            <option value="Industrial">Industrial</option>
+                            <option value="Serviços de Alimentação">Serviços de Alimentação (Restaurantes/Padarias)</option>
+                            <option value="Artesanal">Artesanal</option>
+                        </select>
+                    </div>
+                </div>
+                <button class="btn-gerar" onclick="executarPesquisaBasica()">✨ Gerar Soluções Inovadoras</button>
+            </div>
+
+            <div id="view-avancado" class="search-form animate-fade" style="display:none;">
+                <div class="form-title">PARAMETRIZAÇÃO TÉCNICA</div>
+                
+                <div class="advanced-grid-layout">
+                    <div>
+                        <div class="adv-label-box">Matéria-Prima Principal</div>
+                        <input type="text" id="inputResiduoAdv" class="adv-input-box" placeholder="Ex: Bagaço de Malte">
+                    </div>
+                    <div>
+                        <div class="adv-label-box">Produto Alvo (Opcional)</div>
+                        <input type="text" id="inputProdutoAlvo" class="adv-input-box" placeholder="Ex: Snack, Bebida, Farinha...">
+                    </div>
+                </div>
+
+                <div class="advanced-grid-layout" style="margin-top: 20px;">
+                    <div>
+                        <div class="adv-label-box">Escala de Produção</div>
+                        <select id="selectNivelAdv" class="adv-input-box" style="background:white; color:#333;">
+                            <option value="Agro Industria">Industrial (Alta escala)</option>
+                            <option value="Serviços de Alimentação">Serviços de Alimentação</option>
+                            <option value="Artesanal">Pequeno Produtor</option>
+                        </select>
+                    </div>
+                    <div>
+                        <div class="adv-label-box">Volume Disponível</div>
+                        <input type="text" id="inputQtdAdv" class="adv-input-box" placeholder="Ex: 500kg/semana">
+                    </div>
+                </div>
+
+                <div style="margin-top: 25px;">
+                    <div class="form-title" style="border-bottom: 1px solid #eee; padding-bottom: 5px;">Ingredientes Disponíveis (Co-produtos)</div>
+                    <div id="lista-ingredientes-extras"></div>
+                    <button type="button" class="btn-add-ingrediente" onclick="adicionarCampoIngrediente()">+ Adicionar Ingrediente Extra</button>
+                </div>
+
+                <button class="btn-gerar" onclick="executarPesquisaAvancada()">🔍 Processar Dossiê Técnico</button>
+            </div>
+        </section>
+
+        <div id="area-lista-resultados" class="results-grid"></div>
+
+        <div id="area-detalhes-produto" style="display:none;">
+            <button class="btn-back" onclick="voltarParaLista()" style="background:none; border:none; color:#666; cursor:pointer; margin-bottom:20px; font-weight:bold;">← Voltar para opções</button>
+            <div id="conteudo-detalhe"></div>
+        </div>
+    </div>
+
+    <script src="js/gerador.js"></script>
+</body>
+</html>

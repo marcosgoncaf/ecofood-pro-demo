@@ -1,0 +1,27 @@
+# --- ARQUIVOS DE SISTEMA ---
+Thumbs.db
+.DS_Store
+
+# --- PYTHON (CRÍTICO: IGNORAR ISSO) ---
+__pycache__/
+*.py[cod]
+*$py.class
+
+# --- AMBIENTE VIRTUAL (O VILÃO QUE TRAVOU SEU PC) ---
+venv/
+env/
+.venv/
+
+# --- VARIAVEIS DE AMBIENTE (SEGURANÇA) ---
+.env
+
+# --- O QUE QUEREMOS QUE SUBA (EXCEÇÕES) ---
+# O Git ignora pastas de banco de dados por padrão as vezes, 
+# mas aqui não estamos bloqueando nada que impeça o ChromaDB.
+# A pasta "banco_vetorial" subirá normalmente.
+
+# Ignorar a pasta do banco (pesada)
+banco_vetorial/
+
+# Mas permitir o arquivo ZIP (leve)
+!banco_vetorial.zip
