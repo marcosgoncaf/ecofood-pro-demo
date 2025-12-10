@@ -1,12 +1,12 @@
-/* ECOFOOD PRO - ENGINE 16.0 (FINAL GOLD EDITION) */
+/* ECOFOOD PRO - ENGINE 17.0 (AI RESILIENCE SYSTEM) */
 
 const API_URL = "/gerar-solucao"; 
 
-// --- CONTROLE DE ESTADO PRO (PERSISTÊNCIA) ---
+// --- CONTROLE DE ESTADO PRO ---
 let usuarioEhPro = false; 
 
 const databaseProfissionais = [
-    { nome: "Marcos Filho", area: "P&D Lácteos", foto: "assets/eu.jpg", emoji: "👨‍🔬", email: "marcos@ecofood.com" },
+    { nome: "Marcos Filho", area: "Eng. de Processos", foto: "assets/eu.jpg", emoji: "👨‍🔬", email: "marcos@ecofood.com" },
     { nome: "Ana Silva", area: "Regulatório & Qualidade", foto: "", emoji: "👩‍🔬", email: "ana@email.com" },
     { nome: "João Pedro", area: "P&D de Embalagens", foto: "", emoji: "👨‍💻", email: "joao@email.com" },
     { nome: "Júlia Costa", area: "Inovação Sustentável", foto: "", emoji: "👩‍🌾", email: "julia@email.com" }
@@ -14,6 +14,44 @@ const databaseProfissionais = [
 
 let historicoGlobal = [];
 let resultadosAtuais = [];
+
+// --- SISTEMA DE RESILIÊNCIA DE IMAGEM (NOVO) ---
+// Se a imagem falhar, ele tenta recarregar até 3 vezes com um pequeno delay
+function tratarErroImagem(imgElement) {
+    let tentativas = parseInt(imgElement.getAttribute('data-retry') || '0');
+    const maxTentativas = 3;
+
+    if (tentativas < maxTentativas) {
+        // Aumenta contador
+        imgElement.setAttribute('data-retry', tentativas + 1);
+        
+        // Feedback visual: Coloca uma opacidade para indicar "carregando"
+        imgElement.style.opacity = '0.5';
+
+        console.log(`⚠️ Imagem falhou. Tentativa de recuperação ${tentativas + 1}/${maxTentativas}...`);
+
+        // Espera 1.5 segundos (escalonado) para não sobrecarregar a API
+        setTimeout(() => {
+            // Truque: Adiciona um timestamp na URL para forçar o navegador a buscar de novo
+            // Mantemos o mesmo prompt, mas mudamos o seed levemente
+            let currentSrc = imgElement.src;
+            let novaUrl = new URL(currentSrc);
+            novaUrl.searchParams.set('seed', Math.random()); // Novo seed = Nova tentativa no servidor
+            
+            imgElement.src = novaUrl.toString();
+            imgElement.style.opacity = '1';
+        }, 1500 * (tentativas + 1)); // Delay aumenta a cada erro (1.5s, 3s, 4.5s)
+    } else {
+        // Se falhar 3 vezes, aí sim usamos um placeholder local elegante para não ficar quebrado
+        console.error("❌ Falha definitiva na imagem. Usando backup.");
+        imgElement.onerror = null; // Para o loop
+        imgElement.src = 'assets/selo_bronze.png'; // Usamos o selo como fallback visual ou uma img genérica se tiver
+        imgElement.style.objectFit = "contain";
+        imgElement.style.padding = "20px";
+    }
+}
+
+// ... (Resto das funções padrão: mudarAba, adicionarCampoIngrediente...) ...
 
 function mudarAba(aba) {
     document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
@@ -38,32 +76,20 @@ function adicionarCampoIngrediente() {
     container.appendChild(div);
 }
 
-// --- LÓGICA DE DESBLOQUEIO PERSISTENTE ---
 function desbloquearSistema() {
-    // 1. Atualiza o estado lógico
     usuarioEhPro = true;
-
-    // 2. Aplica o CSS IMEDIATAMENTE
     document.body.classList.add('pro-mode-active'); 
     document.getElementById('pro-badge').style.display = 'inline-block'; 
 
-    // 3. Pequeno delay para o navegador renderizar a cor preta ANTES do alerta travar a tela
     setTimeout(() => {
         alert("✨ ACESSO PRO LIBERADO!\n\nAgora todas as suas pesquisas futuras virão completas automaticamente.");
-        
-        // Remove bloqueios visuais
         const overlays = document.querySelectorAll('.pro-lock-overlay');
         const conteudos = document.querySelectorAll('.blurred-content');
-        
         overlays.forEach(el => el.style.display = 'none');
         conteudos.forEach(el => {
             el.classList.remove('blurred-content');
-            el.style.pointerEvents = 'auto'; 
-            el.style.userSelect = 'auto';
-            el.style.opacity = '1';
+            el.style.pointerEvents = 'auto'; el.style.userSelect = 'auto'; el.style.opacity = '1';
         });
-        
-        // Habilita o clique nos cards antigos
         const cardsBloqueados = document.querySelectorAll('.locked-card');
         cardsBloqueados.forEach((card, index) => {
             card.classList.remove('locked-card');
@@ -72,28 +98,30 @@ function desbloquearSistema() {
                 card.onclick = function() { abrirDetalhe(resultadosAtuais[itemIndex]); };
             }
         });
-        
-        // Re-renderiza para garantir que bordas e estilos peguem o novo CSS
         renderizarGrid(resultadosAtuais);
-        
-    }, 50); // 50ms é suficiente para o olho perceber a mudança de cor
+    }, 50); 
 }
 
 function gerarImagemInteligente(item) {
+    // VOLTAMOS COM A IA (Pollinations)
     const categoria = item.categoria_visual || "GENERICO";
     const contextMap = {
-        'ALIMENTO_SOLIDO': "Food product photography, appetizing, neutral studio background, packaging",
+        'ALIMENTO_SOLIDO': "Food product photography, appetizing, neutral studio background, packaging, high detail",
         'BEBIDA': "Beverage photography, condensation on glass, liquid texture, neutral studio background, studio lighting",
         'LACTEO': "Dairy product photography, creamy texture, opaque white liquid, neutral studio background, soft lighting",
-        'COSMETICO': "Cosmetic product, spa aesthetic, marble background, NO FOOD, luxury",
-        'FARMACO': "Pharmaceutical product, clean clinical background, medicine style",
+        'COSMETICO': "Cosmetic product, spa aesthetic, marble background, NO FOOD, luxury packaging",
+        'FARMACO': "Pharmaceutical product, clean clinical background, medicine style box",
         'AGRICOLA': "Garden product, soil texture background, outdoor light, fertilizer bag",
         'GENERICO': "Professional product mockup, neutral studio background"
     };
+    
     const contextTrigger = contextMap[categoria] || contextMap['GENERICO'];
-    const objectDescription = item.visual_prompt_en || `Packaging of ${item.nome}`;
-    const promptFinal = `${contextTrigger}, ${objectDescription}, cinematic lighting, 8k, photorealistic, centered composition, upper center focus`.replace(/\s+/g, ' ').trim();
-    return `https://pollinations.ai/p/${encodeURIComponent(promptFinal)}?width=600&height=450&seed=${Math.random()}&model=flux`;
+    // Simplificando o prompt para a IA processar mais rápido
+    const objectDescription = item.visual_prompt_en || `Product packaging of ${item.nome}`;
+    const promptFinal = `${contextTrigger}, ${objectDescription}, 8k resolution`.replace(/\s+/g, ' ').trim();
+    
+    // Usamos model=flux pois é o melhor, mas adicionamos nologo=true e seed aleatório
+    return `https://pollinations.ai/p/${encodeURIComponent(promptFinal)}?width=600&height=450&seed=${Math.random()}&model=flux&nologo=true`;
 }
 
 function calcularSelo(item) {
@@ -105,6 +133,7 @@ function calcularSelo(item) {
     return { img: "assets/selo_bronze.png", label: "Bronze", saldo: saldo };
 }
 
+// ... (Funções de execução e envio mantidas iguais) ...
 async function executarPesquisaBasica() {
     const residuo = document.getElementById('inputResiduoBasico').value.trim();
     const nivel = document.getElementById('selectNivelBasico').value;
@@ -167,10 +196,11 @@ function renderizarGrid(lista) {
 
     lista.forEach((item, index) => {
         const card = document.createElement('div');
-        
-        // --- LÓGICA: Se usuário JÁ é pro, NÃO bloqueia nada. Se não, bloqueia >= 2 ---
         const isLocked = !usuarioEhPro && index >= 2; 
         
+        // --- AQUI APLICAMOS O ONERROR NAS IMAGENS ---
+        const imgHtml = `<img src="${item.imagem_url}" alt="${item.nome}" onerror="tratarErroImagem(this)">`;
+
         if (isLocked) {
             card.className = 'result-card locked-card';
             card.innerHTML = `
@@ -180,7 +210,7 @@ function renderizarGrid(lista) {
                     <button class="btn-upgrade" onclick="desbloquearSistema()">Testar gratuitamente por 7 dias</button>
                 </div>
                 <div class="blurred-content">
-                    <div class="card-img"><img src="${item.imagem_url}" alt="Bloqueado"></div>
+                    <div class="card-img">${imgHtml}</div>
                     <div class="card-body">
                         <span class="card-tag">PREMIUM</span>
                         <h3 style="margin: 10px 0;">${item.nome}</h3>
@@ -192,7 +222,7 @@ function renderizarGrid(lista) {
             card.className = 'result-card';
             card.onclick = function() { abrirDetalhe(item); };
             card.innerHTML = `
-                <div class="card-img"><img src="${item.imagem_url}" alt="${item.nome}"></div>
+                <div class="card-img">${imgHtml}</div>
                 <div class="card-body">
                     <span class="card-tag">${item.nivel}</span>
                     <h3 style="margin: 10px 0; color: #333;">${item.nome}</h3>
@@ -205,6 +235,8 @@ function renderizarGrid(lista) {
     setTimeout(() => { grid.scrollIntoView({ behavior: 'smooth', block: 'start' }); }, 200);
 }
 
+// ... (Resto das funções de contato e detalhe mantidas iguais, APENAS ATUALIZE A IMAGEM NO abrirDetalhe) ...
+
 function ativarContato(id, produtoNome) {
     document.getElementById(`btn-contact-${id}`).style.display = 'none';
     document.getElementById(`form-contact-${id}`).style.display = 'block';
@@ -216,7 +248,6 @@ function enviarEmailSimulado(id) {
     const btn = document.querySelector(`#form-contact-${id} button`);
     const txtArea = document.getElementById(`msg-contact-${id}`);
     if(!txtArea.value.trim()) { alert("Por favor, escreva uma mensagem."); return; }
-    const txtOriginal = btn.innerText;
     btn.innerText = "Enviando..."; btn.disabled = true; btn.style.background = "#999";
     setTimeout(() => {
         document.getElementById(`form-contact-${id}`).innerHTML = `
@@ -270,6 +301,7 @@ function abrirDetalhe(item) {
         </div>
     `}).join('');
 
+    // --- AQUI APLICAMOS O ONERROR NA IMAGEM DO DETALHE TAMBÉM ---
     conteudo.innerHTML = `
         <div class="detail-card">
             <div class="report-header">
@@ -277,7 +309,9 @@ function abrirDetalhe(item) {
                 <p>${item.nivel} • Origem: ${item.regiao || "Brasil"}</p>
             </div>
             <div class="dashboard-grid">
-                <div class="area-imagem"><img src="${item.imagem_url}" alt="${item.nome}"></div>
+                <div class="area-imagem">
+                    <img src="${item.imagem_url}" alt="${item.nome}" onerror="tratarErroImagem(this)">
+                </div>
                 <div class="area-conceito">
                     <h4 style="color:#000; font-size:0.8rem;">CONCEITO</h4>
                     <p style="font-style:italic; font-size:1.1rem;">"${item.pitch}"</p>

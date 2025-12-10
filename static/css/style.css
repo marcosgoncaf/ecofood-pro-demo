@@ -315,3 +315,38 @@ body.pro-mode-active .btn-contact:hover {
     img { max-width: 100% !important; page-break-inside: avoid; }
     .result-card.locked-card { display: none !important; }
 }
+
+/* --- LOADER DE IMAGEM (PARA QUANDO A IA ESTIVER GERANDO) --- */
+.card-img {
+    position: relative;
+    background: #f0f0f0; /* Fundo cinza enquanto carrega */
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+/* Spinner animado */
+.card-img::before {
+    content: '';
+    position: absolute;
+    width: 40px;
+    height: 40px;
+    border: 4px solid rgba(0, 0, 0, 0.1);
+    border-left-color: var(--accent); /* Dourado */
+    border-radius: 50%;
+    animation: spin 1s linear infinite;
+    z-index: 1;
+    /* Só aparece se a imagem não cobrir (ou seja, enquanto carrega ou se tiver opacidade) */
+}
+
+/* Quando a imagem carrega, ela fica por cima do spinner */
+.card-img img {
+    z-index: 2; 
+    position: relative;
+    transition: opacity 0.3s ease;
+}
+
+@keyframes spin {
+    0% { transform: rotate(0deg); }
+    100% { transform: rotate(360deg); }
+}
