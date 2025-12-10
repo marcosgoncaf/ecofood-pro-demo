@@ -6,7 +6,7 @@ const API_URL = "/gerar-solucao";
 let usuarioEhPro = false; 
 
 const databaseProfissionais = [
-    { nome: "Marcos Filho", area: "Eng. de Processos", foto: "assets/eu.jpg", emoji: "👨‍🔬", email: "marcos@ecofood.com" },
+    { nome: "Marcos Filho", area: "P&D Lácteos", foto: "assets/eu.jpg", emoji: "👨‍🔬", email: "marcos@ecofood.com" },
     { nome: "Ana Silva", area: "Regulatório & Qualidade", foto: "", emoji: "👩‍🔬", email: "ana@email.com" },
     { nome: "João Pedro", area: "P&D de Embalagens", foto: "", emoji: "👨‍💻", email: "joao@email.com" },
     { nome: "Júlia Costa", area: "Inovação Sustentável", foto: "", emoji: "👩‍🌾", email: "julia@email.com" }
