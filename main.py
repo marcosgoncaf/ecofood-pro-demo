@@ -1,6 +1,7 @@
 import os
 import json
 import zipfile
+import google.generativeai as genai
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
@@ -20,6 +21,11 @@ load_dotenv()
 try:
     client_groq = Groq(api_key=os.environ.get("GROQ_API_KEY"))
     client_tavily = TavilyClient(api_key=os.environ.get("TAVILY_API_KEY"))
+    
+    # NOVA CONFIGURAÇÃO GEMINI
+    gemini_key = os.environ.get("GEMINI_API_KEY")
+    if gemini_key:
+        genai.configure(api_key=gemini_key)
 except Exception as e:
     print(f"⚠️ Aviso API: {e}")
 
@@ -134,17 +140,33 @@ def limpar_json(texto):
     return None
 
 def gerar_com_fallback(messages):
-    modelos = ["llama-3.3-70b-versatile", "llama-3.1-8b-instant", "mixtral-8x7b-32768"]
-    for modelo in modelos:
+    # 1. TENTATIVA PRIMÁRIA (GROQ)
+    modelos_groq = ["llama3-70b-8192", "llama3-8b-8192", "gemma2-9b-it"]
+    for modelo in modelos_groq:
         try:
-            print(f"🤖 Gerando com: {modelo}...")
-            return client_groq.chat.completions.create(
+            print(f"🤖 Gerando com Groq: {modelo}...")
+            completion = client_groq.chat.completions.create(
                 messages=messages, model=modelo, temperature=0.3, response_format={"type": "json_object"}
             )
+            return completion.choices[0].message.content # Retorna apenas a string
         except Exception as e:
-            print(f"⚠️ Falha no modelo {modelo}: {e}")
+            print(f"⚠️ Falha no Groq {modelo}: {e}")
             continue
-    raise HTTPException(status_code=429, detail="API Ocupada. Tente em 1 min.")
+
+    # 2. TENTATIVA SECUNDÁRIA (REDUNDÂNCIA GEMINI)
+    try:
+        print("🤖 Acionando redundância de segurança com Google Gemini...")
+        modelo_gemini = genai.GenerativeModel(
+            'gemini-1.5-flash', 
+            generation_config={"response_mime_type": "application/json", "temperature": 0.3}
+        )
+        prompt_texto = messages[0]["content"] 
+        response = modelo_gemini.generate_content(prompt_texto)
+        return response.text # Retorna a string
+    except Exception as e:
+        print(f"⚠️ Falha crítica no Gemini: {e}")
+
+    raise HTTPException(status_code=429, detail="Todas as APIs indisponíveis no momento.")
 
 # --- ROTA PRINCIPAL ---
 
@@ -169,10 +191,9 @@ async def gerar_solucao(pedido: PedidoEngenharia):
 
     objetivo = pedido.produto_alvo if pedido.produto_alvo else "Sugira inovações viáveis"
     
-    # 3. PROMPT RIGOROSO (Engenharia Sênior + Pitch Deck)
-    # ALTERAÇÃO: Forçado a gerar 4 sugestões para a lógica Freemium funcionar
+    # 3. PROMPT RIGOROSO Forçado a gerar 4 sugestões para a lógica Freemium funcionar
     prompt_sistema = f"""
-    ATUE COMO: Engenheiro de Alimentos Sênior e Especialista Regulatório.
+    ATUE COMO: Cientista de Alimentos Sênior e Especialista Regulatório.
     
     === DOSSIÊ TÉCNICO (Contexto Recuperado) ===
     [NUTRIÇÃO - TACO/FNDDS]: {dados_taco} / {dados_fndds}
@@ -189,11 +210,11 @@ async def gerar_solucao(pedido: PedidoEngenharia):
     *** INSTRUÇÃO DE DEMO ***
     Gere OBRIGATORIAMENTE 4 sugestões.
     
-    --- REGRAS DE OURO ---
-    1. NUTRIÇÃO OBRIGATÓRIA: Use os dados do bloco [NUTRIÇÃO]. Se não houver correspondência exata, ESTIME com base na matéria-prima similar. NUNCA deixe valores vazios ou zerados.
-    2. LEGISLAÇÃO: Cite a RDC/IN específica encontrada no bloco [LEGISLAÇÃO] que valida a categoria do produto.
-    3. FLUXOGRAMA: Detalhe os parâmetros (Temp/Tempo) citados no bloco [CIÊNCIA].
-    4. ESCALA: Se for "Serviços de Alimentação" ou "Artesanal", foque em equipamentos de cozinha industrial (fornos, liquidificadores) e não torres de secagem.
+    --- REGRAS ---
+    1. NUTRIÇÃO OBRIGATÓRIA: Use os dados do bloco [NUTRIÇÃO]. Se não houver correspondência exata, ESTIME com base na matéria-prima similar. NUNCA deixe valores vazios ou zerados NUNCA estime com base em outras referencias que não a [NUTRIÇÃO].
+    2. LEGISLAÇÃO: Cite TODAS as RDCs/INs específicas encontradas no bloco [LEGISLAÇÃO] que validam a categoria do produto.
+    3. FLUXOGRAMA: Detalhe TODOS os parâmetros técnicos (Temp/Tempo) citados no bloco [CIÊNCIA].
+    4. ESCALA: Se for "Serviços de Alimentação" ou "Artesanal", foque em equipamentos de cozinha industrial (fornos, liquidificadores) e não torres de secagem e outros usados em escala industrial.
 
     --- FORMATO JSON OBRIGATÓRIO ---
     {{
@@ -232,9 +253,7 @@ async def gerar_solucao(pedido: PedidoEngenharia):
     }}
     """
 
-    completion = gerar_com_fallback([{"role": "system", "content": prompt_sistema}])
-    
-    raw_content = completion.choices[0].message.content
+    raw_content = gerar_com_fallback([{"role": "system", "content": prompt_sistema}])
     try: content = json.loads(raw_content)
     except: 
         content = limpar_json(raw_content)
