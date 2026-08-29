@@ -14,24 +14,21 @@ import chromadb
 from chromadb.utils import embedding_functions
 from dotenv import load_dotenv
 
-# Carrega .env local (no Render, ele vai ignorar isso e pegar das vars do sistema)
+# Carrega .env local
 load_dotenv()
 
-# --- CONFIGURAÇÃO SEGURA DOS AGENTES ---
+# --- CONFIGURAÇÃO DOS AGENTES ---
 try:
     client_groq = Groq(api_key=os.environ.get("GROQ_API_KEY"))
     client_tavily = TavilyClient(api_key=os.environ.get("TAVILY_API_KEY"))
     
-    # NOVA CONFIGURAÇÃO GEMINI
     gemini_key = os.environ.get("GEMINI_API_KEY")
     if gemini_key:
         genai.configure(api_key=gemini_key)
 except Exception as e:
-    print(f"⚠️ Aviso API: {e}")
+    print(f"Aviso API: {e}")
 
 # --- CARREGAMENTO DO CÉREBRO (CHROMA) ---
-# Nota: Na nuvem, o Chroma local resetará a cada deploy a menos que use disco persistente.
-# Para a apresentação, isso não é problema, pois ele roda na memória ou recria se vazio.
 rag_ciencia = rag_taco = rag_fndds = rag_agua = rag_leis = None
 
 try:
@@ -57,29 +54,24 @@ try:
     try: rag_leis = chroma.get_collection("legislacao_anvisa", embedding_function=emb_fn)
     except: pass
     
-    print("🧠 Memória Vetorial Carregada!")
+    print("Memoria Vetorial Carregada!")
 except Exception as e:
-    print(f"⚠️ Aviso: O Banco Vetorial falhou ou iniciou vazio ({e}).")
+    print(f"Aviso: O Banco Vetorial falhou ou iniciou vazio ({e}).")
 
 app = FastAPI()
 
-# Configuração CORS (Permissiva para garantir que funcione na demo)
 app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_credentials=True, allow_methods=["*"], allow_headers=["*"])
 
-# --- SERVIR ARQUIVOS ESTÁTICOS (FRONTEND INTEGRADO) ---
-# Isso permite que o Backend entregue o site, facilitando o deploy em 1 serviço só.
-# Certifique-se de ter movido index.html, css/ e js/ para a pasta 'static'
+# --- SERVIR ARQUIVOS ESTÁTICOS ---
 try:
     app.mount("/css", StaticFiles(directory="static/css"), name="css")
     app.mount("/js", StaticFiles(directory="static/js"), name="js")
-    # Se tiver assets, descomente abaixo:
     app.mount("/assets", StaticFiles(directory="static/assets"), name="assets")
 except Exception as e:
-    print(f"⚠️ Aviso Estático: Pastas css/js não encontradas em 'static/'. {e}")
+    print(f"Aviso Estatico: Pastas css/js nao encontradas em 'static/'. {e}")
 
 @app.get("/")
 async def read_root():
-    # Retorna o index.html quando acessa a raiz
     return FileResponse('static/index.html')
 
 # --- MODELOS ---
@@ -95,9 +87,9 @@ class PedidoEngenharia(BaseModel):
     quantidade_semanal: Optional[str] = None
     ingredientes_extras: List[IngredienteExtra] = []
     modo_avancado: bool = False
+    provedor: str = "groq" # Parâmetro para rotear a requisição
 
-# --- FUNÇÕES ---
-
+# --- FUNÇÕES AUXILIARES ---
 def consultar_rag(collection, query, n=1):
     if not collection or collection.count() == 0: return ""
     try:
@@ -117,7 +109,7 @@ def traduzir_termo(termo):
     except: return termo
 
 def pesquisar_economia_segura(termo, nivel):
-    print(f"💰 Buscando economia: {termo}...")
+    print(f"Buscando economia: {termo}...")
     try:
         query = f"preço atacado {termo} brasil site:cepea.esalq.usp.br OR site:noticiasagricolas.com.br"
         res = client_tavily.search(query=query, search_depth="basic", max_results=1)
@@ -139,42 +131,40 @@ def limpar_json(texto):
     except: pass
     return None
 
-def gerar_com_fallback(messages):
-    # 1. TENTATIVA PRIMÁRIA (GROQ)
-    modelos_groq = ["llama3-70b-8192", "llama3-8b-8192", "gemma2-9b-it"]
+# --- FUNÇÕES DE CHAMADA ISOLADAS ---
+def chamar_groq(messages):
+    modelos_groq = ["llama-3.1-70b-versatile", "llama-3.1-8b-instant", "gemma2-9b-it"]
     for modelo in modelos_groq:
         try:
-            print(f"🤖 Gerando com Groq: {modelo}...")
+            print(f"Gerando com Groq: {modelo}...")
             completion = client_groq.chat.completions.create(
                 messages=messages, model=modelo, temperature=0.3, response_format={"type": "json_object"}
             )
-            return completion.choices[0].message.content # Retorna apenas a string
+            return completion.choices[0].message.content
         except Exception as e:
-            print(f"⚠️ Falha no Groq {modelo}: {e}")
+            print(f"Falha no Groq {modelo}: {e}")
             continue
+    raise HTTPException(status_code=429, detail="API Groq indisponivel no momento.")
 
-    # 2. TENTATIVA SECUNDÁRIA (REDUNDÂNCIA GEMINI)
+def chamar_gemini(messages):
     try:
-        print("🤖 Acionando redundância de segurança com Google Gemini...")
+        print("Gerando com Google Gemini (2.5-flash)...")
         modelo_gemini = genai.GenerativeModel(
             'gemini-2.5-flash', 
             generation_config={"response_mime_type": "application/json", "temperature": 0.3}
         )
         prompt_texto = messages[0]["content"] 
         response = modelo_gemini.generate_content(prompt_texto)
-        return response.text # Retorna a string
+        return response.text
     except Exception as e:
-        print(f"⚠️ Falha crítica no Gemini: {e}")
-
-    raise HTTPException(status_code=429, detail="Todas as APIs indisponíveis no momento.")
+        print(f"Falha critica no Gemini: {e}")
+        raise HTTPException(status_code=500, detail="API Gemini indisponivel.")
 
 # --- ROTA PRINCIPAL ---
-
 @app.post("/gerar-solucao")
 async def gerar_solucao(pedido: PedidoEngenharia):
-    print(f"🚀 Processando: {pedido.residuo_principal}")
+    print(f"Processando ({pedido.provedor}): {pedido.residuo_principal}")
 
-    # 1. RAG OTIMIZADO (Query Expansion)
     termo_en = traduzir_termo(pedido.residuo_principal)
     
     dados_ciencia = consultar_rag(rag_ciencia, f"technological process parameters {termo_en} valorization temperature time conditions", n=2)
@@ -191,7 +181,7 @@ async def gerar_solucao(pedido: PedidoEngenharia):
 
     objetivo = pedido.produto_alvo if pedido.produto_alvo else "Sugira inovações viáveis"
     
-    # 3. PROMPT RIGOROSO Forçado a gerar 4 sugestões para a lógica Freemium funcionar
+    # ATENÇÃO: Reduzido para 2 sugestões para evitar o timeout de 100s do Render.
     prompt_sistema = f"""
     ATUE COMO: Cientista de Alimentos Sênior e Especialista Regulatório.
     
@@ -208,7 +198,7 @@ async def gerar_solucao(pedido: PedidoEngenharia):
     Objetivo: {objetivo}. 
     
     *** INSTRUÇÃO DE DEMO ***
-    Gere OBRIGATORIAMENTE 4 sugestões.
+    Gere OBRIGATORIAMENTE 2 sugestões diferentes.
     
     --- REGRAS ---
     1. NUTRIÇÃO OBRIGATÓRIA: Use os dados do bloco [NUTRIÇÃO]. Se não houver correspondência exata, ESTIME com base na matéria-prima similar. NUNCA deixe valores vazios ou zerados NUNCA estime com base em outras referencias que não a [NUTRIÇÃO].
@@ -246,15 +236,21 @@ async def gerar_solucao(pedido: PedidoEngenharia):
                 "economia": {{ "custo_producao_estimado": "R$...", "preco_venda_estimado": "R$...", "margem_lucro": "%", "investimento_inicial": "R$...", "roi_estimado": "meses" }},
                 "regiao": "Brasil"
             }},
-            {{ "nome": "Solução 2...", ... }},
-            {{ "nome": "Solução 3...", ... }},
-            {{ "nome": "Solução 4...", ... }}
+            {{ "nome": "Solução 2...", ... }}
         ]
     }}
     """
 
-    raw_content = gerar_com_fallback([{"role": "system", "content": prompt_sistema}])
-    try: content = json.loads(raw_content)
+    messages = [{"role": "system", "content": prompt_sistema}]
+    
+    # Roteamento baseado no pedido do frontend
+    if pedido.provedor.lower() == "gemini":
+        raw_content = chamar_gemini(messages)
+    else:
+        raw_content = chamar_groq(messages)
+
+    try: 
+        content = json.loads(raw_content)
     except: 
         content = limpar_json(raw_content)
         if not content: raise ValueError("Erro JSON IA")
@@ -264,13 +260,14 @@ async def gerar_solucao(pedido: PedidoEngenharia):
         if "resultados" in content: lista_final = content["resultados"]
         elif "solucoes" in content: lista_final = content["solucoes"]
         else: lista_final = [content]
-    elif isinstance(content, list): lista_final = content
+    elif isinstance(content, list): 
+        lista_final = content
     
-    if len(lista_final) > 0 and isinstance(lista_final[0], list): lista_final = lista_final[0]
+    if len(lista_final) > 0 and isinstance(lista_final[0], list): 
+        lista_final = lista_final[0]
 
     return lista_final
 
 if __name__ == "__main__":
     import uvicorn
-    # Host 0.0.0.0 é obrigatório para rodar em containers (Render)
     uvicorn.run(app, host="0.0.0.0", port=int(os.environ.get("PORT", 8000)))
