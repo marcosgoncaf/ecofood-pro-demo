@@ -20,11 +20,13 @@ load_dotenv()
 
 # --- CONFIGURAÇÃO DOS AGENTES ---
 try:
-    # DeepSeek é 100% compatível com a biblioteca da OpenAI
-    client_deepseek = OpenAI(api_key=os.environ.get("DEEPSEEK_API_KEY"), base_url="https://api.deepseek.com")
+    # OpenRouter usa a biblioteca OpenAI
+    client_principal = OpenAI(
+        api_key=os.environ.get("OPENROUTER_API_KEY"), 
+        base_url="https://openrouter.ai/api/v1"
+    )
     client_tavily = TavilyClient(api_key=os.environ.get("TAVILY_API_KEY"))
     
-    # Nova inicialização do SDK oficial do Gemini
     gemini_key = os.environ.get("GEMINI_API_KEY")
     client_gemini = genai.Client(api_key=gemini_key) if gemini_key else None
 except Exception as e:
@@ -150,18 +152,19 @@ def chamar_gemini(messages):
         print(f"Falha critica no Gemini: {e}")
         raise HTTPException(status_code=500, detail="Todas as APIs indisponiveis.")
 
-def chamar_deepseek(messages):
+def chamar_principal(messages):
     try:
-        print("Gerando com DeepSeek (deepseek-chat)...")
-        response = client_deepseek.chat.completions.create(
-            model="deepseek-chat",
+        print("Gerando com OpenRouter (Modelo Gratuito)...")
+        response = client_principal.chat.completions.create(
+            # Modelo Llama 3 8B gratuito no OpenRouter
+            model="meta-llama/llama-3-8b-instruct:free", 
             messages=messages,
             temperature=0.3,
             response_format={"type": "json_object"}
         )
         return response.choices[0].message.content
     except Exception as e:
-        print(f"Falha no DeepSeek: {e}. Acionando fallback para Gemini...")
+        print(f"Falha no OpenRouter: {e}. Acionando fallback para Gemini...")
         return chamar_gemini(messages)
 
 # --- ROTA PRINCIPAL ---
@@ -249,7 +252,7 @@ async def gerar_solucao(pedido: PedidoEngenharia):
     if pedido.provedor.lower() == "gemini":
         raw_content = chamar_gemini(messages)
     else:
-        raw_content = chamar_deepseek(messages)
+        raw_content = chamar_principal(messages)
 
     try: 
         content = json.loads(raw_content)

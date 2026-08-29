@@ -210,8 +210,8 @@ async function enviarPedido(payload, viewId) {
     };
 
     try {
-        // 1. Tenta o DeepSeek primeiro
-        await fetchProvedor("deepseek");
+        // 1. Tenta o Openrouter primeiro
+        await fetchProvedor("openrouter");
         
         // 2. Aguarda 3.5 segundos cruciais para não sofrer Rate Limit do Google
         await new Promise(resolve => setTimeout(resolve, 3500));
