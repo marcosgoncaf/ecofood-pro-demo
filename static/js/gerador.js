@@ -160,33 +160,77 @@ async function executarPesquisaAvancada() {
 async function enviarPedido(payload, viewId) {
     const areaLista = document.getElementById('area-lista-resultados');
     const areaDetalhe = document.getElementById('area-detalhes-produto');
-    if(areaLista) { areaLista.innerHTML = ""; areaLista.style.display = 'grid'; }
+    
+    if(areaLista) { 
+        areaLista.innerHTML = ""; 
+        areaLista.style.display = 'grid'; 
+    }
     if(areaDetalhe) areaDetalhe.style.display = 'none';
 
     const btnAtivo = document.querySelector(`#${viewId} .btn-gerar`);
     let txtOriginal = "Gerar";
-    if (btnAtivo) { txtOriginal = btnAtivo.innerText; btnAtivo.innerText = "Processando..."; btnAtivo.disabled = true; }
+    if (btnAtivo) { 
+        txtOriginal = btnAtivo.innerText; 
+        btnAtivo.innerText = "Processando..."; 
+        btnAtivo.disabled = true; 
+    }
+
+    resultadosAtuais = []; // Reseta array global para a nova pesquisa
+
+    // Função auxiliar para chamar o backend informando qual IA usar
+    const fetchProvedor = async (nomeProvedor) => {
+        const payloadProvedor = { ...payload, provedor: nomeProvedor };
+        try {
+            const response = await fetch(API_URL, {
+                method: "POST", 
+                headers: { "Content-Type": "application/json" }, 
+                body: JSON.stringify(payloadProvedor)
+            });
+            
+            if (!response.ok) throw new Error(`Erro HTTP: ${response.status}`);
+            
+            let dadosRaw = await response.json();
+            if (!Array.isArray(dadosRaw)) dadosRaw = [dadosRaw];
+            
+            let listaLimpa = dadosRaw.flat().filter(item => item && typeof item === 'object' && item.nome);
+            
+            listaLimpa.forEach(solucao => {
+                solucao.id = Math.random().toString(36).substr(2, 9);
+                solucao.nivel = solucao.nivel || payload.nivel_producao;
+                solucao.imagem_url = gerarImagemInteligente(solucao);
+                resultadosAtuais.push(solucao); // Adiciona ao montante global
+            });
+            
+            // Atualiza a tela a cada resposta recebida
+            renderizarGrid(resultadosAtuais);
+            
+        } catch (error) { 
+            console.error(`Erro no provedor ${nomeProvedor}:`, error); 
+        }
+    };
 
     try {
-        const response = await fetch(API_URL, {
-            method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload)
-        });
-        if (!response.ok) throw new Error(`Erro HTTP: ${response.status}`);
-        let dadosRaw = await response.json();
-        if (!Array.isArray(dadosRaw)) dadosRaw = [dadosRaw];
-        let listaLimpa = dadosRaw.flat().filter(item => item && typeof item === 'object' && item.nome);
-        if (listaLimpa.length === 0) throw new Error("A IA não retornou resultados válidos.");
+        // 1. Tenta o DeepSeek primeiro
+        await fetchProvedor("deepseek");
+        
+        // 2. Aguarda 3.5 segundos cruciais para não sofrer Rate Limit do Google
+        await new Promise(resolve => setTimeout(resolve, 3500));
+        
+        // 3. Tenta o Gemini para completar as 4 opções
+        await fetchProvedor("gemini");
 
-        listaLimpa.forEach(solucao => {
-            solucao.id = Math.random().toString(36).substr(2, 9);
-            solucao.nivel = solucao.nivel || payload.nivel_producao;
-            solucao.imagem_url = gerarImagemInteligente(solucao);
-        });
-        resultadosAtuais = listaLimpa;
-        adicionarAoHistorico(`${payload.residuo_principal} (${payload.nivel_producao})`, resultadosAtuais);
-        renderizarGrid(resultadosAtuais);
-    } catch (error) { console.error("Erro JS:", error); alert("Erro na conexão."); } 
-    finally { if (btnAtivo) { btnAtivo.innerText = txtOriginal; btnAtivo.disabled = false; } }
+        if (resultadosAtuais.length === 0) {
+            alert("As IAs estão sobrecarregadas no momento. Tente novamente em alguns minutos.");
+        } else {
+            adicionarAoHistorico(`${payload.residuo_principal} (${payload.nivel_producao})`, resultadosAtuais);
+        }
+    } finally { 
+        // Libera o botão independente de sucesso ou erro
+        if (btnAtivo) { 
+            btnAtivo.innerText = txtOriginal; 
+            btnAtivo.disabled = false; 
+        } 
+    }
 }
 
 function renderizarGrid(lista) {
@@ -205,7 +249,7 @@ function renderizarGrid(lista) {
             card.className = 'result-card locked-card';
             card.innerHTML = `
                 <div class="pro-lock-overlay">
-                    <h3>🔒 Versão PRO</h3>
+                    <h3>Versão PRO</h3>
                     <p style="font-size:0.9rem; margin-top:5px; color:#555;">Desbloqueie análises de ROI e Fluxogramas.</p>
                     <button class="btn-upgrade" onclick="desbloquearSistema()">Testar gratuitamente por 7 dias</button>
                 </div>
