@@ -1,30 +1,32 @@
 import os
 import json
-import zipfile
-import google.generativeai as genai
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
 from pydantic import BaseModel
 from typing import List, Optional
-from groq import Groq
 from tavily import TavilyClient
 import chromadb
 from chromadb.utils import embedding_functions
 from dotenv import load_dotenv
 
-# Carrega .env local
+# Novas bibliotecas
+from openai import OpenAI
+from google import genai
+from google.genai import types
+
 load_dotenv()
 
 # --- CONFIGURAÇÃO DOS AGENTES ---
 try:
-    client_groq = Groq(api_key=os.environ.get("GROQ_API_KEY"))
+    # DeepSeek é 100% compatível com a biblioteca da OpenAI
+    client_deepseek = OpenAI(api_key=os.environ.get("DEEPSEEK_API_KEY"), base_url="https://api.deepseek.com")
     client_tavily = TavilyClient(api_key=os.environ.get("TAVILY_API_KEY"))
     
+    # Nova inicialização do SDK oficial do Gemini
     gemini_key = os.environ.get("GEMINI_API_KEY")
-    if gemini_key:
-        genai.configure(api_key=gemini_key)
+    client_gemini = genai.Client(api_key=gemini_key) if gemini_key else None
 except Exception as e:
     print(f"Aviso API: {e}")
 
@@ -59,7 +61,6 @@ except Exception as e:
     print(f"Aviso: O Banco Vetorial falhou ou iniciou vazio ({e}).")
 
 app = FastAPI()
-
 app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_credentials=True, allow_methods=["*"], allow_headers=["*"])
 
 # --- SERVIR ARQUIVOS ESTÁTICOS ---
@@ -68,7 +69,7 @@ try:
     app.mount("/js", StaticFiles(directory="static/js"), name="js")
     app.mount("/assets", StaticFiles(directory="static/assets"), name="assets")
 except Exception as e:
-    print(f"Aviso Estatico: Pastas css/js nao encontradas em 'static/'. {e}")
+    print(f"Aviso Estatico: Pastas css/js nao encontradas. {e}")
 
 @app.get("/")
 async def read_root():
@@ -87,25 +88,25 @@ class PedidoEngenharia(BaseModel):
     quantidade_semanal: Optional[str] = None
     ingredientes_extras: List[IngredienteExtra] = []
     modo_avancado: bool = False
-    provedor: str = "groq" # Parâmetro para rotear a requisição
+    provedor: str = "deepseek"
 
 # --- FUNÇÕES AUXILIARES ---
 def consultar_rag(collection, query, n=1):
     if not collection or collection.count() == 0: return ""
     try:
         res = collection.query(query_texts=[query], n_results=n)
-        if res['documents'][0]:
-            return "\n---\n".join(res['documents'][0])
+        if res['documents'][0]: return "\n---\n".join(res['documents'][0])
         return ""
     except: return ""
 
 def traduzir_termo(termo):
     try:
-        chat = client_groq.chat.completions.create(
+        response = client_deepseek.chat.completions.create(
+            model="deepseek-chat",
             messages=[{"role": "user", "content": f"Translate '{termo}' to English food term. Output ONLY the English term."}],
-            model="llama-3.1-8b-instant"
+            temperature=0.1
         )
-        return chat.choices[0].message.content.strip()
+        return response.choices[0].message.content.strip()
     except: return termo
 
 def pesquisar_economia_segura(termo, nivel):
@@ -120,8 +121,8 @@ def limpar_json(texto):
     try:
         inicio = texto.find('[')
         fim = texto.rfind(']') + 1
-        if inicio != -1 and fim != -1:
-            return json.loads(texto[inicio:fim])
+        if inicio != -1 and fim != -1: return json.loads(texto[inicio:fim])
+        
         inicio = texto.find('{')
         fim = texto.rfind('}') + 1
         if inicio != -1 and fim != -1:
@@ -131,34 +132,37 @@ def limpar_json(texto):
     except: pass
     return None
 
-# --- FUNÇÕES DE CHAMADA ISOLADAS ---
-def chamar_groq(messages):
-    modelos_groq = ["llama-3.1-70b-versatile", "llama-3.1-8b-instant", "gemma2-9b-it"]
-    for modelo in modelos_groq:
-        try:
-            print(f"Gerando com Groq: {modelo}...")
-            completion = client_groq.chat.completions.create(
-                messages=messages, model=modelo, temperature=0.3, response_format={"type": "json_object"}
-            )
-            return completion.choices[0].message.content
-        except Exception as e:
-            print(f"Falha no Groq {modelo}: {e}")
-            continue
-    raise HTTPException(status_code=429, detail="API Groq indisponivel no momento.")
-
+# --- FUNÇÕES DE CHAMADA ISOLADAS E FALLBACK ---
 def chamar_gemini(messages):
     try:
         print("Gerando com Google Gemini (2.5-flash)...")
-        modelo_gemini = genai.GenerativeModel(
-            'gemini-2.5-flash', 
-            generation_config={"response_mime_type": "application/json", "temperature": 0.3}
-        )
         prompt_texto = messages[0]["content"] 
-        response = modelo_gemini.generate_content(prompt_texto)
+        response = client_gemini.models.generate_content(
+            model='gemini-2.5-flash', 
+            contents=prompt_texto,
+            config=types.GenerateContentConfig(
+                response_mime_type="application/json",
+                temperature=0.3
+            )
+        )
         return response.text
     except Exception as e:
         print(f"Falha critica no Gemini: {e}")
-        raise HTTPException(status_code=500, detail="API Gemini indisponivel.")
+        raise HTTPException(status_code=500, detail="Todas as APIs indisponiveis.")
+
+def chamar_deepseek(messages):
+    try:
+        print("Gerando com DeepSeek (deepseek-chat)...")
+        response = client_deepseek.chat.completions.create(
+            model="deepseek-chat",
+            messages=messages,
+            temperature=0.3,
+            response_format={"type": "json_object"}
+        )
+        return response.choices[0].message.content
+    except Exception as e:
+        print(f"Falha no DeepSeek: {e}. Acionando fallback para Gemini...")
+        return chamar_gemini(messages)
 
 # --- ROTA PRINCIPAL ---
 @app.post("/gerar-solucao")
@@ -181,44 +185,43 @@ async def gerar_solucao(pedido: PedidoEngenharia):
 
     objetivo = pedido.produto_alvo if pedido.produto_alvo else "Sugira inovações viáveis"
     
-    # ATENÇÃO: Reduzido para 2 sugestões para evitar o timeout de 100s do Render.
     prompt_sistema = f"""
     ATUE COMO: Cientista de Alimentos Sênior e Especialista Regulatório.
     
-    === DOSSIÊ TÉCNICO (Contexto Recuperado) ===
-    [NUTRIÇÃO - TACO/FNDDS]: {dados_taco} / {dados_fndds}
-    [CIÊNCIA - PROCESSOS]: {dados_ciencia}
-    [LEGISLAÇÃO - ANVISA]: {dados_lei}
+    === DOSSIÊ TÉCNICO ===
+    [NUTRIÇÃO]: {dados_taco} / {dados_fndds}
+    [CIÊNCIA]: {dados_ciencia}
+    [LEGISLAÇÃO]: {dados_lei}
     [MERCADO]: {dados_mercado}
-    ============================================
+    ======================
 
     PEDIDO:
     Matéria-prima: {pedido.residuo_principal}. Escala: {pedido.nivel_producao}.
     {str_ingredientes}
     Objetivo: {objetivo}. 
     
-    *** INSTRUÇÃO DE DEMO ***
+    *** INSTRUÇÃO ***
     Gere OBRIGATORIAMENTE 2 sugestões diferentes.
     
     --- REGRAS ---
-    1. NUTRIÇÃO OBRIGATÓRIA: Use os dados do bloco [NUTRIÇÃO]. Se não houver correspondência exata, ESTIME com base na matéria-prima similar. NUNCA deixe valores vazios ou zerados NUNCA estime com base em outras referencias que não a [NUTRIÇÃO].
-    2. LEGISLAÇÃO: Cite TODAS as RDCs/INs específicas encontradas no bloco [LEGISLAÇÃO] que validam a categoria do produto.
-    3. FLUXOGRAMA: Detalhe TODOS os parâmetros técnicos (Temp/Tempo) citados no bloco [CIÊNCIA].
-    4. ESCALA: Se for "Serviços de Alimentação" ou "Artesanal", foque em equipamentos de cozinha industrial (fornos, liquidificadores) e não torres de secagem e outros usados em escala industrial.
+    1. NUTRIÇÃO OBRIGATÓRIA: Use os dados do bloco [NUTRIÇÃO]. Se não houver correspondência exata, ESTIME. NUNCA deixe vazio.
+    2. LEGISLAÇÃO: Cite TODAS as RDCs/INs específicas encontradas no bloco [LEGISLAÇÃO].
+    3. FLUXOGRAMA: Detalhe parâmetros (Temp/Tempo) citados no bloco [CIÊNCIA].
+    4. ESCALA: Adapte equipamentos para o nível de produção solicitado.
 
     --- FORMATO JSON OBRIGATÓRIO ---
     {{
         "resultados": [
             {{
                 "nivel": "{pedido.nivel_producao}",
-                "nome": "Nome Técnico 1",
-                "pitch": "Resumo comercial...",
+                "nome": "Nome Técnico",
+                "pitch": "Resumo...",
                 "categoria_visual": "ALIMENTO_SOLIDO",
                 "visual_prompt_en": "Description...",
                 "validade_estimada": "XX dias",
                 "lista_ingredientes": "...",
-                "fluxograma": ["1. Recepção", "2. Processo X (XX°C/XXmin)", "3. ..."],
-                "seguranca": "Conforme RDC nº... (Baseado no contexto)",
+                "fluxograma": ["1. Recepção", "2. ..."],
+                "seguranca": "RDC nº...",
                 "nutricao": {{ 
                     "porcao": "100g",
                     "valor_energetico": "XX kcal", 
@@ -232,22 +235,21 @@ async def gerar_solucao(pedido: PedidoEngenharia):
                     "sodio": "XX mg", 
                     "alertas_fop": ["ALTO EM AÇÚCAR ADICIONADO?"] 
                 }},
-                "sustentabilidade": {{ "agua_economizada_litros_100kg": 0, "agua_gasta_processo_litros_100kg": 0 }},
-                "economia": {{ "custo_producao_estimado": "R$...", "preco_venda_estimado": "R$...", "margem_lucro": "%", "investimento_inicial": "R$...", "roi_estimado": "meses" }},
+                "sustentabilidade": {{ "agua_economizada_litros_100kg": 0 }},
+                "economia": {{ "custo_producao_estimado": "R$...", "preco_venda_estimado": "R$..." }},
                 "regiao": "Brasil"
             }},
-            {{ "nome": "Solução 2...", ... }}
+            {{ "nome": "Solução 2", ... }}
         ]
     }}
     """
 
     messages = [{"role": "system", "content": prompt_sistema}]
     
-    # Roteamento baseado no pedido do frontend
     if pedido.provedor.lower() == "gemini":
         raw_content = chamar_gemini(messages)
     else:
-        raw_content = chamar_groq(messages)
+        raw_content = chamar_deepseek(messages)
 
     try: 
         content = json.loads(raw_content)
@@ -255,14 +257,7 @@ async def gerar_solucao(pedido: PedidoEngenharia):
         content = limpar_json(raw_content)
         if not content: raise ValueError("Erro JSON IA")
 
-    lista_final = []
-    if isinstance(content, dict):
-        if "resultados" in content: lista_final = content["resultados"]
-        elif "solucoes" in content: lista_final = content["solucoes"]
-        else: lista_final = [content]
-    elif isinstance(content, list): 
-        lista_final = content
-    
+    lista_final = content.get("resultados", content.get("solucoes", content if isinstance(content, list) else [content]))
     if len(lista_final) > 0 and isinstance(lista_final[0], list): 
         lista_final = lista_final[0]
 
