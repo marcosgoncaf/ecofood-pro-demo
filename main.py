@@ -157,7 +157,7 @@ def gerar_com_fallback(messages):
     try:
         print("🤖 Acionando redundância de segurança com Google Gemini...")
         modelo_gemini = genai.GenerativeModel(
-            'gemini-1.5-flash', 
+            'gemini-2.5-flash', 
             generation_config={"response_mime_type": "application/json", "temperature": 0.3}
         )
         prompt_texto = messages[0]["content"] 
