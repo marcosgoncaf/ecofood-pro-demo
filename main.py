@@ -20,10 +20,13 @@ load_dotenv()
 
 # --- CONFIGURAÇÃO DOS AGENTES ---
 try:
-    # OpenRouter usa a biblioteca OpenAI
     client_principal = OpenAI(
         api_key=os.environ.get("OPENROUTER_API_KEY"), 
-        base_url="https://openrouter.ai/api/v1"
+        base_url="https://openrouter.ai/api/v1",
+        default_headers={
+            "HTTP-Referer": "https://ecofood-sgcz.onrender.com", # Obrigatório para modelos grátis
+            "X-Title": "EcoFood Pro" # Identificação
+        }
     )
     client_tavily = TavilyClient(api_key=os.environ.get("TAVILY_API_KEY"))
     
@@ -156,8 +159,7 @@ def chamar_principal(messages):
     try:
         print("Gerando com OpenRouter (Modelo Gratuito)...")
         response = client_principal.chat.completions.create(
-            # Modelo Llama 3 8B gratuito no OpenRouter
-            model="meta-llama/llama-3-8b-instruct:free", 
+            model="meta-llama/llama-3.1-8b-instruct:free", # Versão 3.1
             messages=messages,
             temperature=0.3,
             response_format={"type": "json_object"}

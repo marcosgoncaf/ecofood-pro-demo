@@ -19,35 +19,23 @@ let resultadosAtuais = [];
 // Se a imagem falhar, ele tenta recarregar até 3 vezes com um pequeno delay
 function tratarErroImagem(imgElement) {
     let tentativas = parseInt(imgElement.getAttribute('data-retry') || '0');
-    const maxTentativas = 3;
-
-    if (tentativas < maxTentativas) {
-        // Aumenta contador
+    
+    if (tentativas < 2) {
         imgElement.setAttribute('data-retry', tentativas + 1);
-        
-        // Feedback visual: Coloca uma opacidade para indicar "carregando"
         imgElement.style.opacity = '0.5';
-
-        console.log(`⚠️ Imagem falhou. Tentativa de recuperação ${tentativas + 1}/${maxTentativas}...`);
-
-        // Espera 1.5 segundos (escalonado) para não sobrecarregar a API
+        
         setTimeout(() => {
-            // Truque: Adiciona um timestamp na URL para forçar o navegador a buscar de novo
-            // Mantemos o mesmo prompt, mas mudamos o seed levemente
-            let currentSrc = imgElement.src;
-            let novaUrl = new URL(currentSrc);
-            novaUrl.searchParams.set('seed', Math.random()); // Novo seed = Nova tentativa no servidor
-            
+            let novaUrl = new URL(imgElement.src);
+            novaUrl.searchParams.set('seed', Math.random());
             imgElement.src = novaUrl.toString();
             imgElement.style.opacity = '1';
-        }, 1500 * (tentativas + 1)); // Delay aumenta a cada erro (1.5s, 3s, 4.5s)
+        }, 2000);
     } else {
-        // Se falhar 3 vezes, aí sim usamos um placeholder local elegante para não ficar quebrado
-        console.error("❌ Falha definitiva na imagem. Usando backup.");
-        imgElement.onerror = null; // Para o loop
-        imgElement.src = 'assets/selo_bronze.png'; // Usamos o selo como fallback visual ou uma img genérica se tiver
-        imgElement.style.objectFit = "contain";
-        imgElement.style.padding = "20px";
+        // ALTERNATIVA GARANTIDA: Se a IA de imagem cair, gera um card com texto dinâmico moderno
+        console.error("Falha na IA de imagem. Carregando placeholder seguro.");
+        imgElement.onerror = null;
+        imgElement.style.objectFit = "cover";
+        imgElement.src = `https://placehold.co/600x450/1a1a1a/FFD700?text=EcoFood\\nPro&font=Montserrat`;
     }
 }
 
@@ -103,25 +91,12 @@ function desbloquearSistema() {
 }
 
 function gerarImagemInteligente(item) {
-    // VOLTAMOS COM A IA (Pollinations)
-    const categoria = item.categoria_visual || "GENERICO";
-    const contextMap = {
-        'ALIMENTO_SOLIDO': "Food product photography, appetizing, neutral studio background, packaging, high detail",
-        'BEBIDA': "Beverage photography, condensation on glass, liquid texture, neutral studio background, studio lighting",
-        'LACTEO': "Dairy product photography, creamy texture, opaque white liquid, neutral studio background, soft lighting",
-        'COSMETICO': "Cosmetic product, spa aesthetic, marble background, NO FOOD, luxury packaging",
-        'FARMACO': "Pharmaceutical product, clean clinical background, medicine style box",
-        'AGRICOLA': "Garden product, soil texture background, outdoor light, fertilizer bag",
-        'GENERICO': "Professional product mockup, neutral studio background"
-    };
+    // Limpeza extrema do nome para não quebrar a URL
+    const nomeLimpo = (item.nome || "Produto").replace(/[^a-zA-Z0-9 ]/g, "").trim();
+    const promptFinal = `Professional photography of ${nomeLimpo} food product`;
+    const seed = Math.floor(Math.random() * 9999);
     
-    const contextTrigger = contextMap[categoria] || contextMap['GENERICO'];
-    // Simplificando o prompt para a IA processar mais rápido
-    const objectDescription = item.visual_prompt_en || `Product packaging of ${item.nome}`;
-    const promptFinal = `${contextTrigger}, ${objectDescription}, 8k resolution`.replace(/\s+/g, ' ').trim();
-    
-    // Usamos model=flux pois é o melhor, mas adicionamos nologo=true e seed aleatório
-    return `https://pollinations.ai/p/${encodeURIComponent(promptFinal)}?width=600&height=450&seed=${Math.random()}&model=flux&nologo=true`;
+    return `https://image.pollinations.ai/prompt/${encodeURIComponent(promptFinal)}?width=600&height=450&nologo=true&seed=${seed}`;
 }
 
 function calcularSelo(item) {
