@@ -11,7 +11,6 @@ import chromadb
 from chromadb.utils import embedding_functions
 from dotenv import load_dotenv
 
-# Novas bibliotecas
 from openai import OpenAI
 from google import genai
 from google.genai import types
@@ -23,9 +22,10 @@ try:
     client_principal = OpenAI(
         api_key=os.environ.get("OPENROUTER_API_KEY"), 
         base_url="https://openrouter.ai/api/v1",
+        timeout=15.0,
         default_headers={
-            "HTTP-Referer": "https://ecofood-sgcz.onrender.com", # Obrigatório para modelos grátis
-            "X-Title": "EcoFood Pro" # Identificação
+            "HTTP-Referer": "https://ecofood-sgcz.onrender.com", 
+            "X-Title": "EcoFood Pro" 
         }
     )
     client_tavily = TavilyClient(api_key=os.environ.get("TAVILY_API_KEY"))
@@ -93,7 +93,7 @@ class PedidoEngenharia(BaseModel):
     quantidade_semanal: Optional[str] = None
     ingredientes_extras: List[IngredienteExtra] = []
     modo_avancado: bool = False
-    provedor: str = "deepseek"
+    provedor: str = "openrouter"
 
 # --- FUNÇÕES AUXILIARES ---
 def consultar_rag(collection, query, n=1):
@@ -106,15 +106,22 @@ def consultar_rag(collection, query, n=1):
 
 def traduzir_termo(termo):
     try:
-        response = client_deepseek.chat.completions.create(
-            model="deepseek-chat",
+        response = client_principal.chat.completions.create(
+            model="nvidia/nemotron-3.5-lightning:free",
             messages=[{"role": "user", "content": f"Translate '{termo}' to English food term. Output ONLY the English term."}],
             temperature=0.1
         )
         return response.choices[0].message.content.strip()
     except: return termo
 
-def pesquisar_economia_segura(termo, nivel):
+def validar_mercado_existente(termo):
+    try:
+        query = f"produtos comerciais industriais feitos com {termo} food tech patentes mercado"
+        res = client_tavily.search(query=query, search_depth="basic", max_results=1)
+        return "\n".join([r["content"] for r in res["results"]])
+    except: return ""
+
+def pesquisar_economia_segura(termo):
     print(f"Buscando economia: {termo}...")
     try:
         query = f"preço atacado {termo} brasil site:cepea.esalq.usp.br OR site:noticiasagricolas.com.br"
@@ -157,9 +164,9 @@ def chamar_gemini(messages):
 
 def chamar_principal(messages):
     try:
-        print("Gerando com OpenRouter (Modelo Gratuito)...")
+        print("Gerando com OpenRouter (Nemotron Lightning Gratuito)...")
         response = client_principal.chat.completions.create(
-            model="meta-llama/llama-3.1-8b-instruct:free", # Versão 3.1
+            model="nvidia/nemotron-3.5-lightning:free", 
             messages=messages,
             temperature=0.3,
             response_format={"type": "json_object"}
@@ -181,7 +188,8 @@ async def gerar_solucao(pedido: PedidoEngenharia):
     dados_taco = consultar_rag(rag_taco, pedido.residuo_principal, n=1)
     dados_fndds = consultar_rag(rag_fndds, termo_en, n=1)
     dados_agua = consultar_rag(rag_agua, f"pegada hídrica {pedido.residuo_principal}", n=1)
-    dados_mercado = pesquisar_economia_segura(pedido.residuo_principal, pedido.nivel_producao)
+    dados_mercado = pesquisar_economia_segura(pedido.residuo_principal)
+    dados_validacao = validar_mercado_existente(pedido.residuo_principal)
 
     str_ingredientes = ""
     if pedido.ingredientes_extras:
@@ -197,7 +205,8 @@ async def gerar_solucao(pedido: PedidoEngenharia):
     [NUTRIÇÃO]: {dados_taco} / {dados_fndds}
     [CIÊNCIA]: {dados_ciencia}
     [LEGISLAÇÃO]: {dados_lei}
-    [MERCADO]: {dados_mercado}
+    [MERCADO (Custos)]: {dados_mercado}
+    [MERCADO (Patentes/Indústria)]: {dados_validacao}
     ======================
 
     PEDIDO:
@@ -210,9 +219,10 @@ async def gerar_solucao(pedido: PedidoEngenharia):
     
     --- REGRAS ---
     1. NUTRIÇÃO OBRIGATÓRIA: Use os dados do bloco [NUTRIÇÃO]. Se não houver correspondência exata, ESTIME. NUNCA deixe vazio.
-    2. LEGISLAÇÃO: Cite TODAS as RDCs/INs específicas encontradas no bloco [LEGISLAÇÃO].
+    2. LEGISLAÇÃO: Cite TODAS as RDCs/INs específicas encontradas no bloco [LEGISLAÇÃO]. Para produtos cárneos, lácteos, ovos, mel ou bebidas, embase a segurança ESTritamente em normativas, RTBQs e Decretos do MAPA (Ministério da Agricultura). Use normativas da ANVISA apenas para aditivos, rotulagem ou produtos de origem vegetal.
     3. FLUXOGRAMA: Detalhe parâmetros (Temp/Tempo) citados no bloco [CIÊNCIA].
     4. ESCALA: Adapte equipamentos para o nível de produção solicitado.
+    5. VENDABILIDADE: Gere ideias APENAS de categorias de produtos que possuam prova de conceito comercial ou viabilidade tecnológica industrial mencionada no contexto de mercado. Rejeite formulações culinárias amadoras.
 
     --- FORMATO JSON OBRIGATÓRIO ---
     {{
@@ -226,7 +236,7 @@ async def gerar_solucao(pedido: PedidoEngenharia):
                 "validade_estimada": "XX dias",
                 "lista_ingredientes": "...",
                 "fluxograma": ["1. Recepção", "2. ..."],
-                "seguranca": "RDC nº...",
+                "seguranca": "RDC nº... / MAPA nº...",
                 "nutricao": {{ 
                     "porcao": "100g",
                     "valor_energetico": "XX kcal", 

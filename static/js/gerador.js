@@ -90,14 +90,7 @@ function desbloquearSistema() {
     }, 50); 
 }
 
-function gerarImagemInteligente(item) {
-    // Limpeza extrema do nome para não quebrar a URL
-    const nomeLimpo = (item.nome || "Produto").replace(/[^a-zA-Z0-9 ]/g, "").trim();
-    const promptFinal = `Professional photography of ${nomeLimpo} food product`;
-    const seed = Math.floor(Math.random() * 9999);
-    
-    return `https://image.pollinations.ai/prompt/${encodeURIComponent(promptFinal)}?width=600&height=450&nologo=true&seed=${seed}`;
-}
+gerarImagemInteligente
 
 function calcularSelo(item) {
     const econ = Number(item.sustentabilidade?.agua_economizada_litros_100kg || 0);
@@ -132,7 +125,23 @@ async function executarPesquisaAvancada() {
     enviarPedido({ residuo_principal: residuo, nivel_producao: nivel, quantidade_semanal: qtd || null, produto_alvo: produtoAlvo || null, ingredientes_extras: ingredientesExtras, modo_avancado: true }, 'view-avancado');
 }
 
+function gerarImagemInteligente(item) {
+    const nomeLimpo = (item.nome || "Produto").replace(/[^a-zA-Z0-9 à-úÀ-ÚçÇ]/g, "").trim();
+    
+    const ingredienteBase = Array.isArray(item.lista_ingredientes) && item.lista_ingredientes.length > 0 
+        ? item.lista_ingredientes[0].replace(/[^a-zA-Z0-9 ]/g, "") 
+        : "raw ingredients";
+
+    const promptFinal = `Premium product packaging mockup of ${nomeLimpo}, minimalist and elegant visual identity, professional food photography, surrounded by fresh ${ingredienteBase}, soft studio lighting, clean solid pastel background, 8k resolution, highly detailed, photorealistic`;
+    
+    const seed = Math.floor(Math.random() * 999999);
+    
+    return `https://image.pollinations.ai/prompt/${encodeURIComponent(promptFinal)}?width=600&height=450&nologo=true&seed=${seed}`;
+}
+
 async function enviarPedido(payload, viewId) {
+    console.log("1. Iniciando pedido...", payload);
+    
     const areaLista = document.getElementById('area-lista-resultados');
     const areaDetalhe = document.getElementById('area-detalhes-produto');
     
@@ -146,14 +155,14 @@ async function enviarPedido(payload, viewId) {
     let txtOriginal = "Gerar";
     if (btnAtivo) { 
         txtOriginal = btnAtivo.innerText; 
-        btnAtivo.innerText = "Processando..."; 
+        btnAtivo.innerText = "Processando (Aguarde 15-20s)..."; 
         btnAtivo.disabled = true; 
     }
 
-    resultadosAtuais = []; // Reseta array global para a nova pesquisa
+    resultadosAtuais = []; 
 
-    // Função auxiliar para chamar o backend informando qual IA usar
     const fetchProvedor = async (nomeProvedor) => {
+        console.log(`2. Disparando fetch para IA: ${nomeProvedor}`);
         const payloadProvedor = { ...payload, provedor: nomeProvedor };
         try {
             const response = await fetch(API_URL, {
@@ -162,6 +171,7 @@ async function enviarPedido(payload, viewId) {
                 body: JSON.stringify(payloadProvedor)
             });
             
+            console.log(`3. Resposta de ${nomeProvedor} recebida com Status:`, response.status);
             if (!response.ok) throw new Error(`Erro HTTP: ${response.status}`);
             
             let dadosRaw = await response.json();
@@ -173,34 +183,31 @@ async function enviarPedido(payload, viewId) {
                 solucao.id = Math.random().toString(36).substr(2, 9);
                 solucao.nivel = solucao.nivel || payload.nivel_producao;
                 solucao.imagem_url = gerarImagemInteligente(solucao);
-                resultadosAtuais.push(solucao); // Adiciona ao montante global
+                resultadosAtuais.push(solucao); 
             });
             
-            // Atualiza a tela a cada resposta recebida
             renderizarGrid(resultadosAtuais);
             
         } catch (error) { 
-            console.error(`Erro no provedor ${nomeProvedor}:`, error); 
+            console.error(`❌ Erro detectado no provedor ${nomeProvedor}:`, error); 
         }
     };
 
     try {
-        // 1. Tenta o Openrouter primeiro
         await fetchProvedor("openrouter");
-        
-        // 2. Aguarda 3.5 segundos cruciais para não sofrer Rate Limit do Google
+        console.log("4. Pausa de segurança de 3.5s ativada para proteger cota do Google...");
         await new Promise(resolve => setTimeout(resolve, 3500));
-        
-        // 3. Tenta o Gemini para completar as 4 opções
         await fetchProvedor("gemini");
 
         if (resultadosAtuais.length === 0) {
-            alert("As IAs estão sobrecarregadas no momento. Tente novamente em alguns minutos.");
+            console.warn("5. Ambas as IAs falharam em entregar resultados.");
+            alert("As IAs falharam. Verifique a aba Console (F12) para ver o erro exato.");
         } else {
+            console.log("5. Resultados entregues com sucesso, salvando histórico.");
             adicionarAoHistorico(`${payload.residuo_principal} (${payload.nivel_producao})`, resultadosAtuais);
         }
     } finally { 
-        // Libera o botão independente de sucesso ou erro
+        console.log("6. Finalizando rotina e liberando botão da interface.");
         if (btnAtivo) { 
             btnAtivo.innerText = txtOriginal; 
             btnAtivo.disabled = false; 
@@ -299,6 +306,17 @@ function abrirDetalhe(item) {
 
     const nutri = item.nutricao || {};
     const eco = item.economia || {};
+
+    // Calculadora de Margem Embutida
+    const extrairNum = (str) => parseFloat((str || "0").toString().replace(/[^\d,.-]/g, '').replace(',', '.'));
+    const custoNum = extrairNum(eco.custo_producao_estimado);
+    const vendaNum = extrairNum(eco.preco_venda_estimado);
+
+    let margemReal = eco.margem_lucro && eco.margem_lucro !== "-" ? eco.margem_lucro : "-";
+    if (margemReal === "-" && custoNum > 0 && vendaNum > 0) {
+        margemReal = (((vendaNum - custoNum) / vendaNum) * 100).toFixed(1) + "%";
+    }
+
     let ingr = Array.isArray(item.lista_ingredientes) ? item.lista_ingredientes.join(", ") : (item.lista_ingredientes || "N/A");
     let htmlAlertas = "";
     if (nutri.alertas_fop && Array.isArray(nutri.alertas_fop)) htmlAlertas = `<div class="fop-alert">` + nutri.alertas_fop.map(a => `<div class="magnifying-glass">🔍 ${a}</div>`).join('') + `</div>`;
@@ -320,7 +338,6 @@ function abrirDetalhe(item) {
         </div>
     `}).join('');
 
-    // --- AQUI APLICAMOS O ONERROR NA IMAGEM DO DETALHE TAMBÉM ---
     conteudo.innerHTML = `
         <div class="detail-card">
             <div class="report-header">
@@ -339,7 +356,7 @@ function abrirDetalhe(item) {
                     <h4 style="font-size:0.8rem; margin-bottom:5px;">VIABILIDADE ECONÔMICA</h4>
                     <div style="font-size:0.9rem;">Custo: <strong>${eco.custo_producao_estimado || "-"}</strong></div>
                     <div style="font-size:0.9rem;">Venda: <strong>${eco.preco_venda_estimado || "-"}</strong></div>
-                    <div style="font-size:0.9rem; color:green;">Margem: <strong>${eco.margem_lucro || "-"}</strong></div>
+                    <div style="font-size:0.9rem; color:green;">Margem: <strong>${margemReal}</strong></div>
                     <div style="font-size:0.8rem; margin-top:5px;">ROI: ${eco.roi_estimado || "-"}</div>
                 </div>
                 <div class="area-selo">
@@ -390,7 +407,19 @@ function abrirDetalhe(item) {
             <button onclick="window.print()" style="margin-top:30px; width:100%; padding:15px; background:#000; color:#FFD700; border:2px solid #FFD700; cursor:pointer; font-weight:bold;">🖨️ Gerar PDF do Relatório</button>
         </div>
     `;
-    setTimeout(() => { try { mermaid.init(undefined, document.querySelectorAll('.mermaid')); } catch(e){} }, 200);
+
+    setTimeout(() => { 
+        try { 
+            mermaid.init(undefined, document.querySelectorAll('.mermaid')); 
+            const svg = document.querySelector('.mermaid svg');
+            if(svg) {
+                svg.style.maxWidth = '100%';
+                svg.style.height = 'auto';
+                svgPanZoom(svg, { controlIconsEnabled: true, zoomEnabled: true, panEnabled: true, minZoom: 0.5, maxZoom: 5 });
+            }
+        } catch(e) {} 
+    }, 500);
+
     setTimeout(() => { areaDetalhe.scrollIntoView({ behavior: 'smooth', block: 'start' }); }, 200);
 }
 
