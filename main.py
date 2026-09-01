@@ -171,7 +171,15 @@ def chamar_principal(messages):
             temperature=0.3,
             response_format={"type": "json_object"}
         )
-        return response.choices[0].message.content
+        
+        conteudo = response.choices[0].message.content
+        
+        # Trava de segurança: se a IA retornar nulo ou vazio, força o fallback
+        if not conteudo:
+            raise ValueError("O modelo respondeu com conteúdo vazio (None).")
+            
+        return conteudo
+        
     except Exception as e:
         print(f"Falha no OpenRouter: {e}. Acionando fallback para Gemini...")
         return chamar_gemini(messages)
